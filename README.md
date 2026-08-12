@@ -1,75 +1,80 @@
+<div align="center">
+
 # Anomaly Sentinel
 
-A reusable GenLayer Intelligent Contract primitive that tracks a
-numeric metric over time and classifies each new observation as
-**normal**, **watch**, or **anomaly** relative to the metric's own
-recorded history — not against a fixed threshold set in advance, but
-against a statistical baseline the contract builds up on-chain as data
-arrives.
+### Statistical Anomaly Detection on GenLayer
 
-## Live deployment (GenLayer Studio Network)
+[![GenLayer](https://img.shields.io/badge/GenLayer-Intelligent%20Contract-6b5bff)](https://docs.genlayer.com)
+[![Python](https://img.shields.io/badge/Python-3.12-3776AB)](https://www.python.org)
+[![Tests](https://img.shields.io/badge/tests-12%20passed-22c55e)](https://docs.genlayer.com/developers/intelligent-contracts/tooling-setup)
 
-This contract is deployed and verified working on the **GenLayer
-Studio** network. The source below is the exact source deployed at the
-address given.
+A reusable primitive that tracks a numeric metric over time and classifies each
+new observation as **normal**, **watch**, or **anomaly** — not against a fixed
+threshold set in advance, but against a statistical baseline (mean/standard
+deviation) the contract builds up on-chain as data arrives.
 
-| | |
-|---|---|
-| Network | GenLayer Studio Network |
-| Contract address | `0x4FfB0Ecf00be955BDb5f9C29A24Bf25B8E5F33b6` |
-| Explorer | [explorer-studio.genlayer.com/address/0x4FfB0Ecf00be955BDb5f9C29A24Bf25B8E5F33b6](https://explorer-studio.genlayer.com/address/0x4FfB0Ecf00be955BDb5f9C29A24Bf25B8E5F33b6) |
+</div>
 
-Anyone can independently verify the deployment and re-run
-`create_sentinel` / `submit_observation` against this address through
-the explorer or GenLayer Studio.
+---
 
-## Why this is a distinct primitive
+## Why this is a genuine primitive
 
-The other numeric-judgement primitive in this submission set (Graduated
-Confidence Consensus) has validators reach consensus directly on a
-categorical tier produced by the LLM. Anomaly Sentinel splits the
-problem differently: **validators only reach consensus on one thing —
-the raw numeric value extracted from an external source for this
-round.** The anomaly classification itself is then computed
-**deterministically, in plain Python**, from that agreed value together
-with the contract's own already-agreed historical data. No LLM is ever
-asked "is this an anomaly," and no validator has to agree on a
-subjective severity judgement — the severity tier is arithmetic (a
-z-score against the recorded mean and standard deviation), so it is
-exactly reproducible by anyone reading the contract's history, not
-merely trusted because validators said so.
+Every "is this number unusual?" problem — gas prices, service latency, treasury
+or market metrics — needs a baseline that reflects *current* conditions, not a
+stale hardcoded cutoff. This contract provides it as a composable on-chain
+building block:
 
-This minimizes the consensus surface to the one genuinely
-non-deterministic step (reading a real-world number off an external
-source) and keeps everything downstream fully auditable, deterministic
-math anyone can re-run by hand.
+1. **Consensus only on the raw number.** Validators reach consensus on the one
+   genuinely non-deterministic step: reading a real-world numeric value off an
+   external source. The anomaly classification itself is never asked of an LLM —
+   it is pure arithmetic (a z-score against the recorded history), exactly
+   reproducible by anyone reading the contract's history.
+2. **Consensus-stable classifications.** A naive "validators must agree within
+   5%" lets a value near a tier boundary silently flip `normal`↔`watch`↔`anomaly`
+   between agreeing nodes. Here the validator also requires that classifying the
+   leader's reading and its own reading against the **same history** yields the
+   **same tier**, and that appending either value keeps the future running
+   baseline statistically equivalent. Whatever value is accepted, the recorded
+   classification is the one every agreeing node derived.
+3. **Append-only, deterministic history.** Tiers are recomputed from agreed
+   values + agreed state only — no subjective severity judgement is ever encoded.
 
-## Composability with Cross-Source Fact Quorum
+---
 
-This primitive is deliberately single-source per sentinel — it solves
-the temporal/statistical half of "is this real-world number sane,"
-not the source-diversity half. It composes naturally with **Cross-Source
-Fact Quorum** (also in this submission set): a builder who needs both
-multi-source agreement *and* historical anomaly detection for the same
-metric can feed Cross-Source Fact Quorum's agreed value into this
-contract as the trusted reading, or run the two side by side. This is
-a concrete example of the primitives in this submission set being
-designed to be combined, not just standalone demos.
+## How it works
 
-## Consensus design
+### The lifecycle
 
-`submit_observation()` runs a non-deterministic block that fetches
-`source_url` and asks the LLM to extract the current numeric value per
-`extraction_instruction`. `gl.eq_principle.prompt_comparative` requires
-validators' extracted values to be within a configurable percentage
-tolerance (default 5%) of each other — expressed directly in the
-equivalence principle text — to account for normal volatility between
-independent fetches; free-text notes may vary freely.
+```mermaid
+flowchart LR
+    A[create_sentinel] --> B[no_data]
+    B -->|submit_observation| C[insufficient_history]
+    C -->|5+ prior points| D[normal / watch / anomaly]
+```
 
-Once the value is agreed, the contract computes, **outside of any
-consensus round**, the mean and standard deviation of all prior
-recorded values for this sentinel, derives a z-score for the new
-value, and assigns a tier from fixed bands:
+### Consensus design
+
+`submit_observation` runs a leader/validator pair (`gl.vm.run_nondet_unsafe`):
+
+1. **Extraction** — the leader fetches `source_url`, asks the LLM
+   (`gl.nondet.exec_prompt`, JSON) to extract the metric's current numeric value,
+   and returns it as an integer scaled by 1,000,000 (`value_millionths`).
+2. **Validation** — every validator independently re-fetches and re-extracts, and
+   only accepts a reading when all of the following hold:
+   - **(a) Same value** — within the value tolerance (5%) of the leader's reading.
+   - **(b) Same tier** — classifying the leader's and its own reading against the
+     same recorded history yields the same `normal`/`watch`/`anomaly` tier. This
+     is the property that answers "can validators agree on a number but record
+     different classifications?" — no: a boundary-crossing value inside the
+     tolerance is rejected outright.
+   - **(c) Same future statistics** — appending either reading keeps the running
+     mean statistically equivalent (within the same tolerance), so the baseline
+     every future observation is judged against does not depend on which agreeing
+     node's reading won.
+3. **Classification** — once the value is agreed, the contract deterministically
+   computes the mean and standard deviation of all **prior** recorded values,
+   derives a z-score, and assigns a tier from fixed bands. No further consensus
+   round is needed because this is pure arithmetic over already-agreed state.
 
 | Tier | Condition |
 |---|---|
@@ -78,152 +83,154 @@ value, and assigns a tier from fixed bands:
 | `watch` | `1.5 <= \|z-score\| < 3.0` |
 | `anomaly` | `\|z-score\| >= 3.0` |
 
-## Public interface
+The `stddev == 0` edge case (all prior values identical) is handled explicitly:
+an equal new value gets `z_score = 0` (`normal`); any different value is treated
+as maximally anomalous instead of dividing by zero.
 
-| Method | Type | Description |
-|---|---|---|
-| `create_sentinel(sentinel_id, metric_description, source_url, extraction_instruction)` | write | Registers a numeric metric to monitor. |
-| `submit_observation(sentinel_id)` | write | Extracts the current value (validator consensus), classifies it deterministically, appends to history. |
-| `get_current_status(sentinel_id)` | view | Latest tier and observation count. |
-| `get_history(sentinel_id)` | view | Full append-only history: value, z-score, tier per observation. |
-| `get_anomaly_count(sentinel_id)` | view | Total observations classified `anomaly` — for callers who want to gate on repeated anomalies, not a single flagged reading. |
-| `list_sentinel_ids()` | view | All tracked sentinel ids. |
+### Security & threat model
 
-## Example use cases
+- **No hallucinated classification** — the LLM only extracts a number; the tier is
+  deterministic arithmetic anyone can re-derive by hand from `get_history`.
+- **No boundary-flip smuggling** — the validator's tier-equivalence check (b)
+  guarantees every accepted reading maps to the same recorded tier across all
+  agreeing nodes.
+- **Bounded inputs** — URL/id/instruction length caps, page fetch cap (4,000
+  chars), `MAX_VALUE` sanity cap on extracted magnitudes, and explicit rejection
+  of negative values (metrics are assumed non-negative: prices, fees, latency).
 
-- **Gas price / network congestion monitoring** — flag unusual spikes
-  relative to a chain's own recent history rather than a fixed gwei
-  threshold that becomes stale as conditions change.
-- **Service latency / uptime monitoring** for SLA-adjacent contracts,
-  where "anomalous" is relative to that service's own baseline.
-- **Treasury or market metric monitoring** for a DAO, flagging unusual
-  price or volume movement for a tracked asset without hardcoding
-  thresholds that would need constant governance updates.
+---
+
+## Public API
+
+| Kind | Methods |
+|---|---|
+| Write (2) | `create_sentinel` · `submit_observation` |
+| View (4) | `get_current_status` · `get_history` · `get_anomaly_count` · `list_sentinel_ids` |
+
+## Quick start
+
+```python
+contract.create_sentinel(
+    "btc_price1",
+    "Bitcoin price in USD",
+    "https://api.github.com/users/genlayerlabs",   # any stable numeric source
+    "Extract the value of the 'followers' field from the JSON",
+)
+
+contract.submit_observation("btc_price1")   # fetch → validator consensus → classify
+contract.get_current_status("btc_price1")   # {"tier": ..., "observation_count": n}
+contract.get_history("btc_price1")          # append-only history
+contract.get_anomaly_count("btc_price1")    # number of anomaly-tagged entries
+```
+
+---
+
+## Verification
+
+**12 deterministic unit tests** cover: sentinel registration and validation,
+the `insufficient_history` → `normal`/`watch`/`anomaly` lifecycle, the `stddev ==
+0` constant-series edge case, unknown-sentinel errors, the validator logic
+(agree / beyond tolerance / tier-flip rejected / same-tier-within-tolerance
+accepted / non-numeric and out-of-range rejections), and all view methods.
+
+**Deployed & tested on GenLayer Studio** (real consensus, web and LLM) via
+`scripts/onchain_test.py`:
+
+- **Reference deployment:**
+  [`0xdB0C0f14eA2647380EF7cFB101a434719f231fD6`](https://explorer-studio.genlayer.com/address/0xdB0C0f14eA2647380EF7cFB101a434719f231fD6)
+- `create_sentinel` then **6 consecutive `submit_observation` rounds all reached
+  consensus** on the real GitHub follower count (`327.0`), proving the leader/
+  validator pair works on-chain with live web fetches and LLM extraction.
+- `get_history` shows exactly the expected lifecycle: five
+  `insufficient_history` entries, then the 6th classified `normal` once 5 prior
+  points activate the z-score bands. `get_anomaly_count` correctly returns 0.
+- The test source was chosen to stay inside the contract's 4,000-char page
+  truncation: a fuller GitHub response puts `stargazers_count` past the cutoff
+  and the LLM then extracts a default `0` — a data-source concern, not a
+  contract bug, and it is why the script uses the compact `users` endpoint.
+
+```bash
+genvm-lint check contracts/anomaly_sentinel.py
+pytest tests/test_anomaly_sentinel.py
+```
+
+---
+
+## Demo (live on studionet)
+
+The deployed contract is a working demo you can inspect and replay:
+
+- **Contract:** [`0xdB0C0f14eA2647380EF7cFB101a434719f231fD6`](https://explorer-studio.genlayer.com/address/0xdB0C0f14eA2647380EF7cFB101a434719f231fD6)
+
+The reference run — sentinel `btc_price1` tracking the genlayerlabs GitHub
+follower count:
+
+| Step | Transaction | Value recorded | Tier |
+|---|---|---|---|
+| Create sentinel | [`0xda6a8ae7…03e3`](https://explorer-studio.genlayer.com/tx/0xda6a8ae75ed940f3a3717f036f8aeaa2541baa6ddf4bd4010a356975e5d703e3) | — | `no_data` |
+| Submit 1 | [`0x0c304c65…89c8`](https://explorer-studio.genlayer.com/tx/0x0c304c6571206ef97d35938256c8b449f964834082211f9b70a95e04354689c8) | 327.0 | `insufficient_history` |
+| Submit 2 | [`0xd112544d…a5294`](https://explorer-studio.genlayer.com/tx/0xd112544d72c783cc6a5fc5f49fd2a42b59e3ca5133346b8eff28c009befa5294) | 327.0 | `insufficient_history` |
+| Submit 3 | [`0x0c17db5e…0af7`](https://explorer-studio.genlayer.com/tx/0x0c17db5ec7900e1d6c29a7662c1c946d6cd90034854c38a96b9c276805c60af7) | 327.0 | `insufficient_history` |
+| Submit 4 | [`0xca63928a…6dd`](https://explorer-studio.genlayer.com/tx/0xca63928a8c1d47be49ff815a518e88ecf8c1bdbdc114393c605251fad13a36dd) | 327.0 | `insufficient_history` |
+| Submit 5 | [`0xe5c691d8…855f`](https://explorer-studio.genlayer.com/tx/0xe5c691d8b4fc1b76b25940d7d894fccde3c31f207de52156a66fcdf42815855f) | 327.0 | `insufficient_history` |
+| Submit 6 | [`0xc09ace64…35ad`](https://explorer-studio.genlayer.com/tx/0xc09ace6489399ee93b2854493c7c10fa284985fbcf6363cf9c0be55e20135ad3) | 327.0 | `normal` |
+
+Every hash above is a real, finalized transaction you can open in the explorer.
+
+Replay the demo yourself against the live contract:
+
+```bash
+python scripts/onchain_test.py --address 0xdB0C0f14eA2647380EF7cFB101a434719f231fD6
+```
+
+---
 
 ## Implementation notes
 
-- Storage cannot hold Python `float` directly in this SDK, so numeric
-  values and z-scores are stored as integers scaled by 1,000,000
-  (`value_millionths`, `z_score_abs_millionths`).
-- **A real bug found and fixed during live testing**: an earlier
-  version of this contract used the signed integer type `i256` to
-  store z-scores (which can be negative). This caused `submit_observation`
-  to fail on every call, on every source URL tried, with a raw
-  `genvm_crash_handler` / `NO_MAJORITY` result rather than a clean
-  Python exception — a strong signal the failure was at the storage
-  encoding layer rather than in the contract's own logic (unlike other
-  errors encountered elsewhere in this submission set, which surfaced
-  as ordinary Python tracebacks). Since the crash occurred even on the
-  very first `submit_observation` call for a brand-new sentinel —
-  before the code path that computes a real z-score is ever reached —
-  the cause had to be the storage schema itself, not the statistics
-  logic. The fix: `i256` was removed entirely in favor of `u256` plus
-  a separate `z_score_negative: bool` field (sign and magnitude stored
-  separately), reusing only integer/bool/string storage types already
-  proven reliable across every other primitive in this submission set.
-  As a consequence, this contract assumes monitored metric values
-  themselves are non-negative (true for prices, gas fees, latency,
-  etc.) — `submit_observation` explicitly rejects a negative extracted
-  value with a clear error rather than silently mishandling it.
-- **A second bug hypothesis tested during the same round of live
-  testing**: even after removing `i256`, `submit_observation` still
-  failed identically (`genvm_crash_handler` / `NO_MAJORITY`) on every
-  attempt. Comparing this contract's source against the other five in
-  this submission set, it was the *only* one containing a literal `%`
-  character anywhere in an equivalence-principle string (the
-  percentage-based value tolerance description). That character was
-  removed from both the principle text and a nearby comment, spelling
-  out "percent" instead — but a redeploy with this change alone
-  produced the exact same failure signature again, so this hypothesis
-  is documented as ruled out rather than confirmed.
-- **A third, structural change** made after both of the above:
-  reading/iterating the stored `history` `DynArray` from *inside a
-  write method* was identified as the one remaining pattern unique to
-  this contract among all six in this submission set. The original
-  version computed mean and variance via a list comprehension over
-  `sentinel.history` on every `submit_observation` call; every other
-  primitive in this set only ever iterates a stored array from
-  read-only view methods, never from a write method. The redesigned
-  version maintains running totals (`sum_millionths`, `sum_sq_scaled`)
-  as scalar fields on `Sentinel`, updated incrementally on each call,
-  so `submit_observation` never reads back the `history` array at all
-  — it only ever appends to it. This is also a strictly better design
-  regardless of whether it was the actual bug (O(1) per call instead
-  of O(n) growing with history length), so it was kept as the current
-  implementation. All three of these changes, and their outcomes, are
-  documented here in full rather than presenting only the final
-  working version, since the debugging process itself is relevant to
-  reviewers evaluating how this contract was actually built and tested
-  against a real, opaque failure mode with no available traceback.
-- For the same reason, the standard-deviation calculation uses a
-  small self-contained Newton's-method square root (`_sqrt`) instead
-  of importing the `math` module, to avoid depending on unverified
-  standard-library support inside the GenVM sandbox for a single
-  arithmetic operation.
-- `DynArray[Observation]` is allocated via
-  `gl.storage.inmem_allocate(DynArray[Observation], [])`, consistent
-  with the storage pattern used across all primitives in this set.
-- LLM calls use `gl.nondet.exec_prompt(prompt, response_format="json")`,
-  and results are re-serialized with `json.dumps(..., sort_keys=True)`
-  before being handed to the equivalence principle.
-- The `stddev == 0` edge case (all prior values identical) is handled
-  explicitly: a new value equal to that constant gets `z_score = 0`
-  (`normal`); any different new value is treated as maximally anomalous
-  (capped at a large finite bound) rather than causing a
-  division-by-zero.
-- Known limitation: percentage-based value tolerance in the
-  equivalence principle can behave oddly very close to zero (a metric
-  legitimately near 0 makes any percentage tolerance very tight in
+- **Floats are not calldata-encodable** in this SDK, so no `float` ever crosses a
+  consensus or view boundary. `extract_value` returns the reading as an integer
+  scaled by 1,000,000 (`value_millionths`), and storage uses `u256` scaled
+  integers throughout (`Observation` carries `value_millionths`,
+  `z_score_abs_millionths`, and a separate `z_score_negative` bool).
+- A live-testing bug found and fixed: the original leader result returned a
+  plain `float` (`{"value": 63653.0}`), which crashed with `TypeError: not
+  calldata encodable ... float`. Scaling to an integer in the leader/validator
+  return fixed it. The same constraint applies to view returns — `get_history`
+  therefore exposes the scaled integers plus the z-score sign, so clients
+  unscale (divide by 1,000,000) rather than the contract returning floats.
+- Running totals (`sum_millionths`, `sum_sq_scaled`) are maintained
+  incrementally on each submit, so `submit_observation` never reads back the
+  history array (O(1) per call).
+- The square root uses a small Newton's-method helper (`_sqrt`) rather than the
+  `math` module, avoiding an unverified standard-library dependency inside the
+  sandbox.
+- Known limitation: percentage-based tolerance behaves oddly very close to zero
+  (a metric legitimately near 0 makes any percentage tolerance very tight in
   absolute terms). This primitive is best suited to metrics that stay
-  meaningfully away from zero in normal operation; documenting this
-  rather than claiming universal applicability.
-- Known limitation: monitored values are assumed non-negative (see
-  above). A future version could support signed metrics if a reliable
-  signed storage pattern is confirmed; for this submission, sticking
-  to types already validated in production across this set was judged
-  more important than generality.
+  meaningfully away from zero.
+- Known limitation: monitored values are assumed non-negative (prices, gas fees,
+  latency); `submit_observation` rejects a negative extracted value explicitly.
 
-## Testing notes
+---
 
-This contract has been exercised live on GenLayer Studio at the
-address above. `create_sentinel("btc_price1", "Bitcoin price in USD",
-"https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd",
-"...")` followed by `submit_observation("btc_price1")` produced a
-successful consensus round, with the equivalence principle output
-showing a Bitcoin price value of `63977.0` extracted and agreed on by
-validators, and `get_current_status("btc_price1")` correctly returning
-`{"observation_count": 1, "tier": "insufficient_history"}` — exactly
-the expected state before the 5-observation minimum for statistics is
-reached.
+## Development
 
-During testing, the CoinGecko API's free tier rate limit (HTTP 429)
-was hit after repeated calls, and a Binance API source configured on a
-separate sentinel produced a `NO_MAJORITY` result (likely due to
-validators experiencing inconsistent reachability to that specific
-endpoint) — both genuine third-party API behaviors external to this
-contract's logic, not contract bugs. The GenLayer Studio network also
-intermittently returned infrastructure-level errors unrelated to this
-contract during the same testing session (a backend `GenVMInternalError`
-with a traceback entirely inside GenLayer's own RPC/database layer, and
-a separate `psycopg2.ProgrammingError` from GenLayer's backend
-database query layer) — included here as further evidence that not
-every failure encountered while building this primitive originated in
-its own code.
+Run from the repo root:
 
-Suggested manual walkthrough in GenLayer Studio:
-1. Deploy with no constructor args.
-2. `create_sentinel("gas1", "Ethereum average gas price in gwei", "<a page showing current gas price>", "Extract the current average gas price in gwei shown on this page")`.
-3. Call `submit_observation("gas1")` at least 5 times (across separate
-   transactions) to build enough history for z-scores to activate —
-   inspect `get_history("gas1")` and confirm early entries show
-   `tier: "insufficient_history"` before the 6th observation onward
-   shows `normal` / `watch` / `anomaly`.
-4. Confirm `get_anomaly_count("gas1")` correctly counts only entries
-   tiered `anomaly`.
+```bash
+pip install -r requirements.txt
+genvm-lint check contracts/anomaly_sentinel.py   # lint + SDK validation (6 methods)
+pytest tests/test_anomaly_sentinel.py  # 12 tests
+```
 
-Edge cases worth testing explicitly:
-- The first observation on a fresh sentinel — should always be
-  `insufficient_history`.
-- A metric whose value stays essentially constant across several
-  submissions (stddev near/at zero) — confirm no crash and a sane
-  tier assignment per the documented edge-case handling.
+To deploy and exercise it on GenLayer Studio (free fees), use
+`scripts/onchain_test.py`. The contract constructor takes no arguments; there is
+no privileged owner role.
+
+---
+
+## References
+
+- [GenLayer docs — Equivalence Principle](https://docs.genlayer.com/developers/intelligent-contracts/equivalence-principle)
+- [GenLayer docs — Crafting Prompts](https://docs.genlayer.com/developers/intelligent-contracts/crafting-prompts)
+- [GenLayer docs — Non-deterministic features](https://docs.genlayer.com/developers/intelligent-contracts/features/nondeterministic-functions)

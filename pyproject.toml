@@ -1,0 +1,8 @@
+[tool.pytest.ini_options]
+testpaths = [
+    "contracts/dispute-arbiter/tests/test_dispute_arbiter.py",
+    "tests/test_anomaly_sentinel.py",
+]
+markers = [
+    "integration: tests requiring GenLayer Studio (run with gltest)",
+]

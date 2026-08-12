@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+venv/
+env/
+
+# Testing / artifacts
+.pytest_cache/
+artifacts/
+*.egg-info/
+.tox/
+.coverage
+htmlcov/
+
+# Environment & secrets (never commit private keys)
+.env
+.env.*
+!.env.example
+
+# Node (if a frontend is added)
+node_modules/
+dist/
+
+# Editors / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# GenLayer / studio local state
+localnet/
+*.pid
