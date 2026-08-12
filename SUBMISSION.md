@@ -18,7 +18,7 @@ Security: no hallucinated classifications; bounded inputs; non-negative metrics 
 
 ## Useful submission links
 
-- Reference deployment: https://explorer-studio.genlayer.com/address/0xdB0C0f14eA2647380EF7cFB101a434719f231fD6
+- Reference deployment: https://explorer-studio.genlayer.com/address/0x0dD4870705Adbf1a12f6C8ccE87a75d6D9e3AEeF
 - Repo README (design, security, threat model): see `README.md` in this folder
 - Direct-mode tests: `pytest tests/test_anomaly_sentinel.py`
 - On-chain test script: `scripts/onchain_test.py`

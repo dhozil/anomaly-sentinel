@@ -89,12 +89,20 @@ def main():
     )
 
     print("\n[1] create_sentinel")
+    # Pick a sentinel id that does not already exist on this deployment so the
+    # script can be re-run against the same contract.
+    existing = read("list_sentinel_ids") or []
+    sid = "btc_price1"
+    n = 1
+    while sid in existing:
+        n += 1
+        sid = f"btc_price{n}"
     assert send_tx(client, write("create_sentinel", alice, args=[
-        "btc_price1", "GitHub follower count of the genlayerlabs org",
+        sid, "GitHub follower count of the genlayerlabs org",
         SOURCE_URL,
         EXTRACTION_INSTRUCTION,
     ]), "create_sentinel")
-    assert read("list_sentinel_ids") == ["btc_price1"]
+    assert sid in read("list_sentinel_ids")
     print(f"    sentinels={read('list_sentinel_ids')}")
 
     print("\n[2] submit_observation x6 (build statistical history)")
@@ -102,7 +110,7 @@ def main():
         # External sources (web APIs) can fail transiently; retry the submit
         # rather than treating an upstream outage as a contract failure.
         for attempt in range(4):
-            ok = send_tx(client, write("submit_observation", alice, args=["btc_price1"]), f"submit {i+1}")
+            ok = send_tx(client, write("submit_observation", alice, args=[sid]), f"submit {i+1}")
             if ok:
                 break
             print(f"    [submit {i+1}] external failure, retrying ({attempt+1}/4)...")
@@ -110,16 +118,16 @@ def main():
         assert ok, f"submit {i+1} never succeeded after retries"
 
     print("\n[3] views")
-    status = read("get_current_status", "btc_price1")
+    status = read("get_current_status", sid)
     print(f"    current_status={status}")
-    history = read("get_history", "btc_price1")
+    history = read("get_history", sid)
     print(f"    history_len={len(history)}")
     for h in history:
         z = h["z_score_abs_millionths"] / 1_000_000
         if h["z_score_negative"]:
             z = -z
         print(f"      epoch={h['epoch']} value={h['value_millionths']/1_000_000} z={z:.3f} tier={h['tier']}")
-    print(f"    anomaly_count={read('get_anomaly_count', 'btc_price1')}")
+    print(f"    anomaly_count={read('get_anomaly_count', sid)}")
 
     tiers = [h["tier"] for h in history]
     assert tiers[:5] == ["insufficient_history"] * 5, f"first 5 should be insufficient_history, got {tiers[:5]}"

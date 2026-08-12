@@ -137,7 +137,7 @@ accepted / non-numeric and out-of-range rejections), and all view methods.
 `scripts/onchain_test.py`:
 
 - **Reference deployment:**
-  [`0xdB0C0f14eA2647380EF7cFB101a434719f231fD6`](https://explorer-studio.genlayer.com/address/0xdB0C0f14eA2647380EF7cFB101a434719f231fD6)
+  [`0x0dD4870705Adbf1a12f6C8ccE87a75d6D9e3AEeF`](https://explorer-studio.genlayer.com/address/0x0dD4870705Adbf1a12f6C8ccE87a75d6D9e3AEeF)
 - `create_sentinel` then **6 consecutive `submit_observation` rounds all reached
   consensus** on the real GitHub follower count (`327.0`), proving the leader/
   validator pair works on-chain with live web fetches and LLM extraction.
@@ -160,27 +160,26 @@ pytest tests/test_anomaly_sentinel.py
 
 The deployed contract is a working demo you can inspect and replay:
 
-- **Contract:** [`0xdB0C0f14eA2647380EF7cFB101a434719f231fD6`](https://explorer-studio.genlayer.com/address/0xdB0C0f14eA2647380EF7cFB101a434719f231fD6)
+- **Contract:** [`0x0dD4870705Adbf1a12f6C8ccE87a75d6D9e3AEeF`](https://explorer-studio.genlayer.com/address/0x0dD4870705Adbf1a12f6C8ccE87a75d6D9e3AEeF)
 
-The reference run — sentinel `btc_price1` tracking the genlayerlabs GitHub
-follower count:
+The reference run — sentinel tracking the genlayerlabs GitHub follower count:
 
 | Step | Transaction | Value recorded | Tier |
 |---|---|---|---|
-| Create sentinel | [`0xda6a8ae7…03e3`](https://explorer-studio.genlayer.com/tx/0xda6a8ae75ed940f3a3717f036f8aeaa2541baa6ddf4bd4010a356975e5d703e3) | — | `no_data` |
-| Submit 1 | [`0x0c304c65…89c8`](https://explorer-studio.genlayer.com/tx/0x0c304c6571206ef97d35938256c8b449f964834082211f9b70a95e04354689c8) | 327.0 | `insufficient_history` |
-| Submit 2 | [`0xd112544d…a5294`](https://explorer-studio.genlayer.com/tx/0xd112544d72c783cc6a5fc5f49fd2a42b59e3ca5133346b8eff28c009befa5294) | 327.0 | `insufficient_history` |
-| Submit 3 | [`0x0c17db5e…0af7`](https://explorer-studio.genlayer.com/tx/0x0c17db5ec7900e1d6c29a7662c1c946d6cd90034854c38a96b9c276805c60af7) | 327.0 | `insufficient_history` |
-| Submit 4 | [`0xca63928a…6dd`](https://explorer-studio.genlayer.com/tx/0xca63928a8c1d47be49ff815a518e88ecf8c1bdbdc114393c605251fad13a36dd) | 327.0 | `insufficient_history` |
-| Submit 5 | [`0xe5c691d8…855f`](https://explorer-studio.genlayer.com/tx/0xe5c691d8b4fc1b76b25940d7d894fccde3c31f207de52156a66fcdf42815855f) | 327.0 | `insufficient_history` |
-| Submit 6 | [`0xc09ace64…35ad`](https://explorer-studio.genlayer.com/tx/0xc09ace6489399ee93b2854493c7c10fa284985fbcf6363cf9c0be55e20135ad3) | 327.0 | `normal` |
+| Create sentinel | [`0x68eacca7…e967b`](https://explorer-studio.genlayer.com/tx/0x68eacca7d1c062abf8694ed0989e4fb1320bd9be3b6e417ec7ef17acaf3e967b) | — | `no_data` |
+| Submit 1 | [`0xda928824…8c96`](https://explorer-studio.genlayer.com/tx/0xda928824b8415af564639c5f3f2498efa670b0f8164030f279161d4b99a08c96) | 327.0 | `insufficient_history` |
+| Submit 2 | [`0x8a1534bd…72b6d`](https://explorer-studio.genlayer.com/tx/0x8a1534bd54546b99b065e65d941a5bea9036acae280d30e9e2c57557a9072b6d) | 327.0 | `insufficient_history` |
+| Submit 3 | [`0xa597f4d9…b611`](https://explorer-studio.genlayer.com/tx/0xa597f4d9d4d4cb74b887f0a512cc027efc4b01fc2ba15293c1705dfd8669b611) | 327.0 | `insufficient_history` |
+| Submit 4 | [`0x931f73fb…e281e`](https://explorer-studio.genlayer.com/tx/0x931f73fb1334d7755e953464a29a3a2a2667b82e938b4c18162139c5f5ce281e) | 327.0 | `insufficient_history` |
+| Submit 5 | [`0x957e16d3…a4c5b`](https://explorer-studio.genlayer.com/tx/0x957e16d3e28e35f063ed1ad1411152324a8d4a837df0af8bc3539dd54c6a4c5b) | 327.0 | `insufficient_history` |
+| Submit 6 | [`0x7e126e4c…7390`](https://explorer-studio.genlayer.com/tx/0x7e126e4cffdaf5096c5d764eb685fc10f7a316e50176d42a3bc4d2aa3d8c7390) | 327.0 | `normal` |
 
 Every hash above is a real, finalized transaction you can open in the explorer.
 
 Replay the demo yourself against the live contract:
 
 ```bash
-python scripts/onchain_test.py --address 0xdB0C0f14eA2647380EF7cFB101a434719f231fD6
+python scripts/onchain_test.py --address 0x0dD4870705Adbf1a12f6C8ccE87a75d6D9e3AEeF
 ```
 
 ---
