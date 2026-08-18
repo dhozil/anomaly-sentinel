@@ -16,18 +16,19 @@ For every ``submit_observation`` call:
      extract the current numeric value of the tracked metric.
   2. A custom leader/validator pair (``gl.vm.run_nondet_unsafe``) reaches
      consensus on the raw numeric value. Validators independently re-fetch and
-     re-extract, and only accept a reading if BOTH:
-       a. it is within the value tolerance of the leader's reading (same
-          underlying value), AND
-       b. classifying the leader's reading and the validator's own reading
-          against the SAME recorded history yields the SAME tier.
-     Condition (b) is the key reliability property: the accepted reading is
-     guaranteed to preserve the same on-chain classification no matter which
-     agreeing node's reading is used, so a value near a normal/watch/anomaly
-     boundary cannot silently flip the tier inside the tolerance. The future
-     statistics effect is also bounded: the accepted value is within the
-     tolerance of every agreeing validator's reading, so the running
-     mean/variance baseline stays statistically equivalent either way.
+     re-extract, and only accept a reading that is EXACTLY equal to the
+     leader's. The accepted value is bound to the exact normalized observation
+     (the integer ``value_millionths`` = value * 1_000_000): no tolerance is
+     applied at consensus time.
+     Exact binding is the key reliability property. Any tolerated difference
+     between agreeing readings can prove the same classification NOW while
+     leaving different running ``sum``/``sum_sq`` variance baselines, which
+     yields different mean/variance - and therefore different tiers - for every
+     LATER observation. Requiring exact equality means every agreeing node
+     would record the identical value, so the accepted observation preserves
+     both the currently recorded classification AND every future
+     classification (the post-update count/sum/sum_sq state is identical no
+     matter which agreeing node is used).
   3. Once the value is agreed, the contract deterministically computes the
      mean and standard deviation of all PRIOR recorded values, derives a
      z-score, and assigns a tier from fixed z-score bands. This step involves
@@ -44,7 +45,6 @@ import json
 MIN_HISTORY_FOR_STATS = 5  # minimum prior points before z-scores are meaningful
 WATCH_Z_THRESHOLD = 1.5
 ANOMALY_Z_THRESHOLD = 3.0
-VALUE_TOLERANCE_PERCENT = 5  # agreeing validators' values may differ by this many percent
 
 MAX_VALUE = 10 ** 12  # sanity cap on extracted magnitudes (avoid float/scale overflow)
 MAX_PAGE_CHARS = 4000
@@ -205,9 +205,9 @@ class AnomalySentinel(gl.Contract):
 
     @gl.public.write
     def submit_observation(self, sentinel_id: str) -> None:
-        """Fetch the current metric value, reach validator consensus on it in a
-        way that preserves the classification, then deterministically classify
-        it against this sentinel's own recorded history."""
+        """Fetch the current metric value, reach validator consensus on the
+        exact normalized observation, then deterministically classify it
+        against this sentinel's own recorded history."""
         if sentinel_id not in self.sentinels:
             raise gl.vm.UserError("unknown sentinel_id")
 
@@ -247,8 +247,19 @@ Respond with ONLY a compact JSON object, no markdown, no commentary:
             return {"value_millionths": _scale_to_uint(value), "notes": notes}
 
         def validator_fn(leader_result) -> bool:
-            """Every accepted reading must preserve the classification and the
-            future-statistics effect across agreeing validators."""
+            """The accepted value is bound to the EXACT normalized observation.
+
+            This validator approves a leader reading only if it independently
+            reproduces that exact normalized value (``value_millionths``). No
+            tolerance is applied: two agreeing readings that differ at all
+            would record different values, which can produce the same tier now
+            but different running variance baselines - and therefore different
+            classifications later. Exact equality guarantees the accepted value
+            preserves both the current classification and every future
+            classification, because the post-update statistical state
+            (count, sum, sum_sq) is identical no matter which agreeing node is
+            used.
+            """
             if not isinstance(leader_result, gl.vm.Return):
                 return False
             ld = leader_result.calldata
@@ -264,34 +275,10 @@ Respond with ONLY a compact JSON object, no markdown, no commentary:
             if not isinstance(mm, int) or isinstance(mm, bool) or mm < 0:
                 return False
 
-            # (a) Same underlying reading within the value tolerance
-            # (integer-scaled, so exact arithmetic).
-            denom = max(lm, mm)
-            if denom == 0:
-                if lm != mm:
-                    return False
-            elif abs(lm - mm) / denom > VALUE_TOLERANCE_PERCENT / 100.0:
-                return False
-
-            # (b) Classification stability: both readings map to the SAME tier
-            # against the same history, so the accepted value cannot silently
-            # flip the normal/watch/anomaly boundary inside the tolerance.
-            lv = lm / 1_000_000.0
-            mv = mm / 1_000_000.0
-            if _classify(lv, prior_count, prior_sum, prior_sum_sq)[0] != _classify(
-                mv, prior_count, prior_sum, prior_sum_sq
-            )[0]:
-                return False
-
-            # Future-statistics effect: appending either value keeps the running
-            # baseline statistically equivalent (bounded by the tolerance).
-            if prior_count > 0:
-                mean_l = (prior_sum + lv) / (prior_count + 1)
-                mean_v = (prior_sum + mv) / (prior_count + 1)
-                denom_mean = max(abs(mean_l), abs(mean_v), 1e-9)
-                if abs(mean_l - mean_v) / denom_mean > VALUE_TOLERANCE_PERCENT / 100.0:
-                    return False
-            return True
+            # Bind the exact normalized observation. ``value_millionths`` is an
+            # integer (value * 1_000_000), so equality is exact arithmetic and
+            # the stored value is the very reading this validator reproduced.
+            return lm == mm
 
         result = gl.vm.run_nondet_unsafe(extract_value, validator_fn)
 

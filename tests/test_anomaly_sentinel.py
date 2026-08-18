@@ -2,9 +2,10 @@
 
 Covers: sentinel creation + validation, the observation lifecycle
 (insufficient_history -> normal/watch/anomaly), deterministic classification,
-and the validator guarantee that every accepted reading preserves the SAME
-classification (tier) across agreeing validators even within the value
-tolerance (the steward-requested fix).
+and the validator guarantee that the accepted value is bound to the EXACT
+normalized observation every agreeing validator independently reproduces - so
+it preserves both the current classification and every future classification
+(the steward-requested fix).
 """
 
 import json
@@ -143,7 +144,7 @@ def test_unknown_sentinel_reverts(direct_vm, direct_deploy):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# validator guarantee (classification stability within tolerance)
+# validator guarantee (exact-binding of the normalized observation)
 # ──────────────────────────────────────────────────────────────────────
 
 
@@ -153,26 +154,49 @@ def test_validator_agrees(direct_vm, direct_deploy):
     _make_sentinel(contract, direct_vm, creator)
     _submit(direct_vm, contract, "gas1", 100)
 
-    # Validator re-extracts the same value -> agrees.
+    # Validator re-extracts the exact same normalized value -> agrees.
     assert direct_vm.run_validator() is True
 
 
-def test_validator_rejects_beyond_tolerance(direct_vm, direct_deploy):
+def test_validator_rejects_different_value(direct_vm, direct_deploy):
     contract = direct_deploy("contracts/anomaly_sentinel.py")
     creator = create_address("creator")
     _make_sentinel(contract, direct_vm, creator)
-    _setup(direct_vm, 100)
-    contract.submit_observation("gas1")
+    _submit(direct_vm, contract, "gas1", 100)
 
-    # Validator sees 120.0 (20% apart) -> not the same underlying reading.
+    # Validator sees 120.0 (20% apart) -> not the exact same observation.
     direct_vm.clear_mocks()
     _setup(direct_vm, 120)
     assert direct_vm.run_validator() is False
 
 
-def test_validator_rejects_tier_flip_inside_tolerance(direct_vm, direct_deploy):
+def test_validator_rejects_same_tier_but_not_exact(direct_vm, direct_deploy):
     """The steward-requested guarantee: a leader value and a validator value
-    within the 5% tolerance must NOT map to different tiers."""
+    MAY map to the same tier now, but any difference between them changes the
+    running variance baseline and therefore future classifications. Only the
+    exact normalized observation is accepted."""
+    contract = direct_deploy("contracts/anomaly_sentinel.py")
+    creator = create_address("creator")
+    _make_sentinel(contract, direct_vm, creator)
+
+    # Build prior history so a later value can sit near the watch/normal
+    # boundary: mean ~107.6, stddev ~5.0.
+    for value in (100, 110, 105, 115, 108):
+        _submit(direct_vm, contract, "gas1", value)
+
+    # Leader reads 116 (z ~1.68 -> watch).
+    _submit(direct_vm, contract, "gas1", 116)
+    assert contract.get_current_status("gas1")["tier"] == "watch"
+
+    # A validator reading 118 is within any former tolerance and still maps to
+    # watch (z ~2.08) - same tier now - but it is a DIFFERENT value, so it
+    # would change sum/sum_sq and shift every future z-score. Reject.
+    direct_vm.clear_mocks()
+    _setup(direct_vm, 118)
+    assert direct_vm.run_validator() is False
+
+
+def test_validator_rejects_tier_flip(direct_vm, direct_deploy):
     contract = direct_deploy("contracts/anomaly_sentinel.py")
     creator = create_address("creator")
     _make_sentinel(contract, direct_vm, creator)
@@ -183,29 +207,13 @@ def test_validator_rejects_tier_flip_inside_tolerance(direct_vm, direct_deploy):
         _submit(direct_vm, contract, "gas1", value)
 
     # Leader reads 116 (z ~1.68 -> watch); a validator reading 112 (z ~0.88 ->
-    # normal) is within 5% tolerance but would classify differently.
+    # normal) would classify the observation differently.
     _submit(direct_vm, contract, "gas1", 116)
     assert contract.get_current_status("gas1")["tier"] == "watch"
 
     direct_vm.clear_mocks()
     _setup(direct_vm, 112)
-    assert direct_vm.run_validator() is False  # tier would flip -> reject
-
-
-def test_validator_accepts_same_tier_inside_tolerance(direct_vm, direct_deploy):
-    contract = direct_deploy("contracts/anomaly_sentinel.py")
-    creator = create_address("creator")
-    _make_sentinel(contract, direct_vm, creator)
-    for value in (100, 110, 105, 115, 108):
-        _submit(direct_vm, contract, "gas1", value)
-
-    # Leader 116 (watch). A validator reading 115.5 is within tolerance and
-    # still maps to watch -> accepted.
-    _submit(direct_vm, contract, "gas1", 116)
-
-    direct_vm.clear_mocks()
-    _setup(direct_vm, 118)
-    assert direct_vm.run_validator() is True
+    assert direct_vm.run_validator() is False  # different value -> reject
 
 
 def test_validator_rejects_non_numeric(direct_vm, direct_deploy):

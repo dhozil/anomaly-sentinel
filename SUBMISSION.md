@@ -6,19 +6,19 @@
 
 ## Notes (1000 characters)
 
-Anomaly Sentinel tracks a numeric metric over time and classifies each new observation as normal, watch, or anomaly - not against a fixed threshold, but against a statistical baseline (mean/std) the contract builds on-chain.
+Anomaly Sentinel tracks a numeric metric over time and classifies each new observation as normal, watch, or anomaly against a statistical baseline (mean/std) the contract builds on-chain.
 
-Consensus (Equivalence Principle): a leader/validator pair agrees only on the raw numeric value extracted from the external source (LLM extraction, independent re-extraction by validators). The tier is then computed deterministically in plain Python as a z-score against the recorded history - the LLM is never asked for a subjective severity judgement.
+Consensus: a leader/validator pair agrees only on the raw numeric value extracted from an external source (LLM extraction, independent re-extraction by validators). The tier is deterministic plain-Python arithmetic - a z-score against the recorded history - never an LLM judgement.
 
-Reliability property: a naive 5% value tolerance lets a boundary-crossing value silently flip normal/watch/anomaly between agreeing nodes. Here validators also require that classifying the leader's and their own reading against the SAME history yields the SAME tier, and that appending either keeps the future baseline statistically equivalent. Every accepted reading therefore records the same classification all agreeing nodes derived.
+Reliability: tolerating any difference between agreeing readings can produce the same tier now but different variance baselines and different tiers later. Validators therefore bind the accepted value to the exact normalized observation; only readings each validator independently reproduces exactly are accepted, so future classifications are identical no matter which agreeing node wins.
 
-Security: no hallucinated classifications; bounded inputs; non-negative metrics enforced. Verified: 12 tests; deployed on GenLayer Studio; 6 live consensus rounds on a real GitHub metric.
+Security: no hallucinated classifications; bounded inputs; non-negative metrics. Verified: 12 tests; deployed on GenLayer Studio.
 
 ---
 
 ## Useful submission links
 
-- Reference deployment: https://explorer-studio.genlayer.com/address/0x0dD4870705Adbf1a12f6C8ccE87a75d6D9e3AEeF
+- Reference deployment: https://explorer-studio.genlayer.com/address/0x3babd34aaC6486675328d1db84bfb520bf7475db
 - Repo README (design, security, threat model): see `README.md` in this folder
 - Direct-mode tests: `pytest tests/test_anomaly_sentinel.py`
 - On-chain test script: `scripts/onchain_test.py`
