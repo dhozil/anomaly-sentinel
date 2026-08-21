@@ -6,7 +6,7 @@
 
 [![GenLayer](https://img.shields.io/badge/GenLayer-Intelligent%20Contract-6b5bff)](https://docs.genlayer.com)
 [![Python](https://img.shields.io/badge/Python-3.12-3776AB)](https://www.python.org)
-[![Tests](https://img.shields.io/badge/tests-12%20passed-22c55e)](https://docs.genlayer.com/developers/intelligent-contracts/tooling-setup)
+[![Tests](https://img.shields.io/badge/tests-15%20passed-22c55e)](https://docs.genlayer.com/developers/intelligent-contracts/tooling-setup)
 
 A reusable primitive that tracks a numeric metric over time and classifies each
 new observation as **normal**, **watch**, or **anomaly** — not against a fixed
@@ -97,6 +97,10 @@ as maximally anomalous instead of dividing by zero.
 - **Bounded inputs** — URL/id/instruction length caps, page fetch cap (4,000
   chars), `MAX_VALUE` sanity cap on extracted magnitudes, and explicit rejection
   of negative values (metrics are assumed non-negative: prices, fees, latency).
+- **No synthetic zeros** — an LLM response missing the `value` key, or yielding
+  a non-finite value (`NaN`/`Inf`), is treated as an extraction failure before
+  scaling. It is never stored as a `0` that would contaminate the statistical
+  baseline.
 
 ---
 
@@ -127,21 +131,21 @@ contract.get_anomaly_count("btc_price1")    # number of anomaly-tagged entries
 
 ## Verification
 
-**12 deterministic unit tests** cover: sentinel registration and validation,
+**15 deterministic unit tests** cover: sentinel registration and validation,
 the `insufficient_history` → `normal`/`watch`/`anomaly` lifecycle, the `stddev ==
 0` constant-series edge case, unknown-sentinel errors, the validator logic
 (exact match accepted / any differing reading rejected — including a different
-reading that would share the same tier today — and non-numeric rejections), and
-all view methods.
+reading that would share the same tier today — and non-numeric, missing-key,
+`NaN`/`Inf` rejections), and all view methods.
 
 **Deployed & tested on GenLayer Studio** (real consensus, web and LLM) via
 `scripts/onchain_test.py`:
 
 - **Reference deployment:**
-  [`0x3babd34aaC6486675328d1db84bfb520bf7475db`](https://explorer-studio.genlayer.com/address/0x3babd34aaC6486675328d1db84bfb520bf7475db)
+  [`0x6bfDb1c3403f92eF0AC414c0c8eA486A2bdEfbB1`](https://explorer-studio.genlayer.com/address/0x6bfDb1c3403f92eF0AC414c0c8eA486A2bdEfbB1)
 - `create_sentinel` then **6 consecutive `submit_observation` rounds all reached
   consensus under the exact-binding rule** on the real GitHub follower count
-  (`339.0`, every agreeing node reproduced the identical normalized reading),
+  (`355.0`, every agreeing node reproduced the identical normalized reading),
   proving the leader/validator pair works on-chain with live web fetches and LLM
   extraction.
 - `get_history` shows exactly the expected lifecycle: five
@@ -163,22 +167,22 @@ pytest tests/test_anomaly_sentinel.py
 
 The deployed contract is a working demo you can inspect and replay:
 
-- **Contract:** [`0x3babd34aaC6486675328d1db84bfb520bf7475db`](https://explorer-studio.genlayer.com/address/0x3babd34aaC6486675328d1db84bfb520bf7475db)
+- **Contract:** [`0x6bfDb1c3403f92eF0AC414c0c8eA486A2bdEfbB1`](https://explorer-studio.genlayer.com/address/0x6bfDb1c3403f92eF0AC414c0c8eA486A2bdEfbB1)
 
 The reference run — sentinel tracking the genlayerlabs GitHub follower count:
 
 | Step | Transaction | Value recorded | Tier |
 |---|---|---|---|
-| Create sentinel | [`0x6cb1b252…72572`](https://explorer-studio.genlayer.com/tx/0x6cb1b252f44752241f3999bcefd1de28b293d5d97fbb3118458bdba641072572) | — | `no_data` |
-| Submit 1 | [`0xae5acb47…7ec3`](https://explorer-studio.genlayer.com/tx/0xae5acb47a4d47567d4fd158d4f8dfbb828f342ffaded04cddb800be8ee147ec3) | 339.0 | `insufficient_history` |
-| Submit 2 | [`0x9fd5a567…d3452`](https://explorer-studio.genlayer.com/tx/0x9fd5a5674d4c5557fae126a61054fcef93ecc7bd1c09c1dfba7c30a836cd3452) | 339.0 | `insufficient_history` |
-| Submit 3 | [`0xbfa7ee56…d3952e`](https://explorer-studio.genlayer.com/tx/0xbfa7ee56238fad6544f6bf7e1c0fee4e3f8c33dcbad8db98af633188cdd3952e) | 339.0 | `insufficient_history` |
-| Submit 4 | [`0x3541d4b4…df2c99`](https://explorer-studio.genlayer.com/tx/0x3541d4b49b77fd9a098af6f695a5fafb84e07ebe4d4240f611a02267d8df2c99) | 339.0 | `insufficient_history` |
-| Submit 5 | [`0x95a6979a…e9294d2`](https://explorer-studio.genlayer.com/tx/0x95a6979a9031bc553b7bad6b8519a73a58ab567df48ec7126afda7061e9294d2) | 339.0 | `insufficient_history` |
-| Submit 6 | [`0x30a2a503…cec2a1b`](https://explorer-studio.genlayer.com/tx/0x30a2a5033ea386b25dc40859f00d6caa4c18c2b7ebee1c224410d49cacec2a1b) | 339.0 | `normal` |
+| Create sentinel | [`0xa4e4bcc6…8fc3bf`](https://explorer-studio.genlayer.com/tx/0xa4e4bcc6c2f3a24ca7db1b0caee6b6cc281e7aabbe6def8b22e6f066808fc3bf) | — | `no_data` |
+| Submit 1 | [`0xa5c6d109…4391f3`](https://explorer-studio.genlayer.com/tx/0xa5c6d109ff67e1d2aff2a900f58a8b1f74c35a29fb1453e9f63121263b4391f3) | 355.0 | `insufficient_history` |
+| Submit 2 | [`0xb0ca7c4b…91eb72d`](https://explorer-studio.genlayer.com/tx/0xb0ca7c4b5dc30b24b267e08ef4875c682168a0e77037eb4eb058ee69491eb72d) | 355.0 | `insufficient_history` |
+| Submit 3 | [`0xadaafb4c…47d460`](https://explorer-studio.genlayer.com/tx/0xadaafb4cd257bfc242b45f2779b3c7eaaab81e4dc68ed93cd479b8e6ce47d460) | 355.0 | `insufficient_history` |
+| Submit 4 | [`0x0608aec4…6ac4a8`](https://explorer-studio.genlayer.com/tx/0x0608aec40475500b2575c9a46468f27ca147a220007fd85ebafc0bfb066ac4a8) | 355.0 | `insufficient_history` |
+| Submit 5 | [`0x92bf95a1…84c0c6fd`](https://explorer-studio.genlayer.com/tx/0x92bf95a1b99fd218ad435bf0d8e715fe4d2dc71d0bcff89abaa769cf8840c6fd) | 355.0 | `insufficient_history` |
+| Submit 6 | [`0x35d2364e…bdabb40`](https://explorer-studio.genlayer.com/tx/0x35d2364e139415a7e9ef083a835689c1d95813f25f3454dacd7877046bdabb40) | 355.0 | `normal` |
 
 Every hash above is a real, finalized transaction you can open in the explorer.
-The identical `339.0` recorded in every round is the exact-binding guarantee in
+The identical `355.0` recorded in every round is the exact-binding guarantee in
 action: each validator independently reproduced the same normalized reading, so
 the recorded value and the running mean/variance baseline are the same no matter
 which agreeing node's result won.
@@ -186,7 +190,7 @@ which agreeing node's result won.
 Replay the demo yourself against the live contract:
 
 ```bash
-python scripts/onchain_test.py --address 0x3babd34aaC6486675328d1db84bfb520bf7475db
+python scripts/onchain_test.py --address 0x6bfDb1c3403f92eF0AC414c0c8eA486A2bdEfbB1
 ```
 
 ---
@@ -230,7 +234,7 @@ Run from the repo root:
 ```bash
 pip install -r requirements.txt
 genvm-lint check contracts/anomaly_sentinel.py   # lint + SDK validation (6 methods)
-pytest tests/test_anomaly_sentinel.py  # 12 tests
+pytest tests/test_anomaly_sentinel.py  # 15 tests
 ```
 
 To deploy and exercise it on GenLayer Studio (free fees), use

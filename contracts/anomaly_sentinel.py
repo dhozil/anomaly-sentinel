@@ -99,6 +99,13 @@ def _scale_to_uint(value: float) -> int:
     return int(round(value * 1_000_000))
 
 
+def _is_finite_number(value: float) -> bool:
+    """True only for finite, real floats. NaN compares false against every
+    numeric bound yet cannot be scaled to an integer, so it (and infinities)
+    must be rejected explicitly before scaling."""
+    return value == value and value != float("inf") and value != float("-inf")
+
+
 def _unscale(value_millionths: int) -> float:
     return value_millionths / 1_000_000
 
@@ -234,15 +241,22 @@ Respond with ONLY a compact JSON object, no markdown, no commentary:
 {{"value": <number, integer or decimal, no units or symbols>, "notes": "<one short sentence on where in the page this value was found>"}}
 """
             result = gl.nondet.exec_prompt(prompt, response_format="json")
+            if not isinstance(result, dict) or "value" not in result:
+                # A missing 'value' key is an extraction failure - never a real
+                # zero. Accepting a default 0 would silently contaminate the
+                # stored baseline with a value the source never produced.
+                return {"value_millionths": -1, "notes": ""}
             notes = str(result.get("notes", ""))[:MAX_NOTES_CHARS]
             try:
-                value = float(result.get("value", 0))
+                value = float(result["value"])
             except Exception:
                 value = None
             # Return the value as a scaled integer (value * 1_000_000) so the
             # leader result is calldata-encodable (floats are not). -1 marks an
-            # unparseable/out-of-range extraction, which validators reject.
-            if value is None or value < 0 or value > MAX_VALUE:
+            # unparseable/out-of-range/non-finite extraction, which validators
+            # reject. Non-finite values (NaN/Inf) must fail BEFORE scaling: NaN
+            # passes every numeric bound yet cannot be scaled to an integer.
+            if value is None or not _is_finite_number(value) or value < 0 or value > MAX_VALUE:
                 return {"value_millionths": -1, "notes": notes}
             return {"value_millionths": _scale_to_uint(value), "notes": notes}
 

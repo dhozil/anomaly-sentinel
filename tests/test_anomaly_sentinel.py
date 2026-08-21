@@ -227,6 +227,44 @@ def test_validator_rejects_non_numeric(direct_vm, direct_deploy):
         contract.submit_observation("gas1")
 
 
+def test_missing_value_key_reverts(direct_vm, direct_deploy):
+    """An LLM response without a 'value' key is an extraction failure - never
+    a real zero that would contaminate the stored baseline."""
+    contract = direct_deploy("contracts/anomaly_sentinel.py")
+    creator = create_address("creator")
+    _make_sentinel(contract, direct_vm, creator)
+
+    direct_vm.mock_web(r"source\.example\.com.*", {"status": 200, "body": "page"})
+    direct_vm.mock_llm(r"Metric being tracked", json.dumps({"notes": "no value here"}))
+    with direct_vm.expect_revert("Could not extract a numeric value"):
+        contract.submit_observation("gas1")
+
+
+def test_nan_value_reverts(direct_vm, direct_deploy):
+    """NaN is non-finite: it passes every numeric bound, so it must be treated
+    as extraction failure before scaling, not stored as a value."""
+    contract = direct_deploy("contracts/anomaly_sentinel.py")
+    creator = create_address("creator")
+    _make_sentinel(contract, direct_vm, creator)
+
+    direct_vm.mock_web(r"source\.example\.com.*", {"status": 200, "body": "page"})
+    direct_vm.mock_llm(r"Metric being tracked", json.dumps({"value": "NaN", "notes": "x"}))
+    with direct_vm.expect_revert("Could not extract a numeric value"):
+        contract.submit_observation("gas1")
+
+
+def test_infinite_value_reverts(direct_vm, direct_deploy):
+    """Infinity is non-finite and must fail extraction before scaling."""
+    contract = direct_deploy("contracts/anomaly_sentinel.py")
+    creator = create_address("creator")
+    _make_sentinel(contract, direct_vm, creator)
+
+    direct_vm.mock_web(r"source\.example\.com.*", {"status": 200, "body": "page"})
+    direct_vm.mock_llm(r"Metric being tracked", json.dumps({"value": "Infinity", "notes": "x"}))
+    with direct_vm.expect_revert("Could not extract a numeric value"):
+        contract.submit_observation("gas1")
+
+
 # ──────────────────────────────────────────────────────────────────────
 # views
 # ──────────────────────────────────────────────────────────────────────
